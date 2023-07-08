@@ -1,0 +1,103 @@
+<%#
+kind: snippet
+name: snt-configure_time_synchronization
+model: ProvisioningTemplate
+snippet: true
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description:
+Configure /etc/ntp.conf (RHEL 7) or /etc/chrony.conf (RHEL 8) with the bare minimum of options
+and attempt the time synchronization.
+
+custom snippets:
+  none
+
+snippets:
+  none
+
+changelog:
+04.09.2021 - Steffen Scheib:
+- Initial version
+%>
+
+write_output "Starting processing snippet 'snt-configure_time_synchronization'" "INFO";
+write_output "Current date and time (before attempting to synchronize the data and time): $(date)" "INFO";
+write_output "Attempting to stop ntpd and chronyd (if running)" "INFO";
+# stop (kill, systemctl not working in chroot) ntpd and chronyd
+for process in chronyd ntpd; do
+  [[ -n "$(pgrep "${process}")" ]] || {
+    write_output "No running process Gof '${process}' found" "INFO";
+    continue;
+  };
+  pid="$(pgrep "${process}")"
+
+  write_output "Found PID for process '${process}': '${pid}' - killing it now." "INFO";
+  kill -9 "${pid}"
+done
+
+write_output "'${__NTP_SERVER}' is defined as ntp server pool" "INFO";
+
+<% if @host.operatingsystem.major.to_i <= 7 %>
+  # disable chronyd on RHEL 7 systems
+  write_output "Disabling chronyd" "INFO";
+  systemctl disable chronyd
+  
+  write_output "Writing configuration file /etc/ntp.conf" "INFO";
+  cat <<- EOF > /etc/ntp.conf
+    server ${__NTP_SERVER} iburst
+EOF
+# ^ EOF needs to be at the beginning of the line!
+  
+  write_output "Following the configuration from /etc/ntp.conf" "INFO";
+  printf "%s\n\n" "$(cat /etc/ntp.conf)"
+  
+  write_output "Attempting to synchronize the time using ntpd -gq" "INFO";
+  ntpd -gq
+  write_output "Synchronization done, enabling ntpd via systemctl" "INFO";
+  systemctl enable ntpd
+<% elsif @host.operatingsystem.major.to_i >= 8 %>
+  write_output "Writing configuration file /etc/chrony.conf" "INFO";
+  cat <<- EOF > /etc/chrony.conf
+    server ${__NTP_SERVER} iburst
+    makestep 0.1 -1
+    logdir /var/log/chrony
+    log measurements statistics tracking
+EOF
+# ^ EOF needs to be at the beginning of the line!
+
+  write_output "Following the configuration from /etc/chrony.conf" "INFO";
+  printf "%s\n\n" "$(cat /etc/chrony.conf)"
+  
+  # clean up /var/run/chrony (as process was killed)
+  [[ ! -e /var/run/chrony ]] || {
+    write_output "Removing /var/run/chrony" "INFO";
+    rm -rf /var/run/chrony;
+  };
+  
+  write_output "Starting chronyd" "INFO";
+  chronyd
+  write_output "Started chronyd" "INFO";
+  
+  write_output "Attemping to synchronize the time using chronyc makestep 0.1 -1" "INFO";
+  chronyc makestep 0.1 -1
+  
+  write_output "Synchronization done, enabling chronyd via systemctl" "INFO";
+  systemctl enable chronyd
+<% end -%>
+write_output "Finished processing snippet 'snt-configure_time_synchronization'" "INFO";

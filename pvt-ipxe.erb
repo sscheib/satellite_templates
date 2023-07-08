@@ -1,0 +1,90 @@
+#!gpxe
+<%#
+kind: iPXE
+name: pvt-ipxe
+model: ProvisioningTemplate
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description:
+This is the iPXE template, which is required to create any boot disk (full, generic, host) if using iPXE.
+
+custom snippets:
+ none
+
+snippets:
+- none
+
+supported host parameters:
+> host parameter name                    | type      | description                                                                  <
++----------------------------------------+-----------+-------------------------------------------------------------------------------
+> p-enable_fips_deployment               | boolean   | Whether the image should be booted with fips mode enabled to ensure a FIPS
+*                                        |           | compliant system during installation 
+*                                        |           | Default: Unset
++----------------------------------------+-----------+-------------------------------------------------------------------------------
+> p-ks_debug_network                     | boolean   | Enabled printing of the networking configuration and wait for user input
+*                                        |           | Default: Unset 
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+
+changelog:
+25.05.2023 - Steffen Scheib:
+- Adding support for p-enable_fips_deployment which will append fips=1 to the kernel arguments if enabled
+- Adding supported host parameters section
+
+changelog:
+22.05.2023 - Steffen Scheib:
+- Renamed ks_debug_network to p-ks_debug_network
+
+04.09.2021 - Steffen Scheib:
+- Initial version
+-%>
+
+<% subnet = @host.subnet -%>
+<% if subnet.respond_to?(:dhcp_boot_mode?) && subnet.dhcp_boot_mode? -%>
+  <% static = '' -%>
+<% else -%>
+  <% static_arg = 'static=yes' -%>
+  <% static = (@host.token.nil? ? '?' : '&') + static_arg -%>
+<% end -%>
+
+# Print network configuration
+<% if host_param('p-ks_debug_network') == 1 -%>
+  <% (0..32).each do |i| -%>
+  isset ${net<%= i -%>/mac} || goto no_nic
+  echo net<%= i -%> is a ${net<%= i -%>/chip} with MAC ${net<%= i -%>/mac} and IP ${net<%= i -%>/ip} and Netmask ${net<%= i -%>/netmask} and gateway ${net<%= i -%>/gateway} tag is: ${net<%= i -%>/tag}
+  echo "More information:"
+  ifstat
+  route
+  echo "Press return to continue"
+  read a
+  <% end -%>
+<% end -%>
+
+<% stage2 = host_param('kickstart_liveimg') ? 'inst.stage2=' + medium_uri.to_s : '' %>
+<%- net_options = 'ip=${netX/ip}::${netX/gateway}:${netX/netmask}:::none nameserver=${dns}' -%>
+<%
+  fips = ''
+  if host_param('p-enable_fips_deployment')
+    fips = 'fips=1'
+  end
+-%>
+
+kernel <%= "#{@host.url_for_boot(:kernel)}" %> initrd=initrd.img inst.ks=<%= foreman_url('provision')%><%= static %> inst.stage2=<%= medium_uri %> <%= stage2 %> inst.ksdevice=<%= @host.mac %> network inst.ks.sendmac <%= net_options %> <%= fips %>
+initrd <%= "#{@host.url_for_boot(:initrd)}" %>
+
+boot

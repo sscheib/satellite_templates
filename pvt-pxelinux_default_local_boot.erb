@@ -1,0 +1,41 @@
+<%#
+kind: PXELinux
+name: pvt-pxelinux_default_local_boot
+model: ProvisioningTemplate
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+%>
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description: Customized snippet to lower the time it takes to boot from the local disk
+
+custom snippets:
+ none
+
+snippets:
+- none
+
+changelog:
+20.05.2023 - Steffen Scheib:
+- Initial version
+-%>
+
+UI menu.c32
+MENU TITLE Booting local disk (ESC to stop)
+TIMEOUT 30
+ONTIMEOUT <%= global_setting("default_pxe_item_local", "local_chain_hd0") %>
+DEFAULT <%= global_setting("default_pxe_item_local", "local_chain_hd0") %>
+
+<%= snippet "pxelinux_chainload" %>

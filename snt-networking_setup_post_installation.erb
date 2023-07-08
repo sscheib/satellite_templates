@@ -1,0 +1,242 @@
+<%#
+kind: snippet
+name: snt-networking_setup_post_installation
+model: ProvisioningTemplate
+snippet: true
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description:
+this will configure your host networking, it configures your primary interface as well as other configures NICs. It supports physical, VLAN and Alias interfaces.
+It is intended to be called from %post in your kickstart template. Note that this snippet can be used with Foreman 1.7 and later
+You can use the host parameter p-ks_debug_network to enable some debugging output
+
+
+custom snippets:
+  none
+
+snippets:
+  none
+  
+supported host parameters:
+> host parameter name                    | type      | description                                                                  <
++----------------------------------------+-----------+-------------------------------------------------------------------------------
+> p-ks_debug_network                     | boolean   | If true, writes networking information for debugging purposed to 
+>                                        |           | /root/network_during_installation.log
+*                                        |           | Default: Unset
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+
+changelog:
+22.05.2023 - Steffen Scheib:
+- Renamed ks_debug_network to p-ks_debug_network
+
+04.09.2021 - Steffen Scheib:
+- Initial version
+%>
+
+<% if host_param_true?('p-ks_debug_network') -%>
+  declare -r debugFile="/root/network_during_installation.log"
+  write_output "Host parameter 'gp-ks_debug_network' set, writing information to '${debugFile}'"
+  
+  for command in 'ip address show' 'ip -o link' 'ip route show'; do
+    echo "command '${command}': " >> "${debugFile}"   
+    ${command} >> "${debugFile}"
+    echo "----"
+  done
+<% end -%>
+
+<% 
+  # define some useful ruby variables
+  subnet = @host.subnet 
+  dhcp = subnet.dhcp_boot_mode?
+  os_major = @host.operatingsystem.major.to_i
+-%>
+
+# starting from RHEL 8 network manager is to be used
+<% if os_major >= 8 %>
+  <% nmcontrolled='yes' -%>
+<% else %>
+  <% nmcontrolled='no' -%>
+<% end -%>
+
+
+# primary interface
+#real="$(ip -o link | grep <%= @host.mac -%> | awk '{print $2;}' | sed s/://)"
+
+# Loop 1: iterate over all bond interfaces
+<% 
+bonded_interfaces = []
+bonds = @host.bond_interfaces
+bonds.each do |bond|
+  subnet = bond.subnet
+  dhcp = subnet.nil? ? false : subnet.dhcp_boot_mode? 
+-%>
+  real="<%= bond.identifier -%>"
+  cat <<- EOF > /etc/sysconfig/network-scripts/ifcfg-$real
+    BOOTPROTO="<%= dhcp ? 'dhcp' : 'none' -%>"
+  
+    <% unless dhcp || subnet.nil? -%>
+      IPADDR="<%= bond.ip -%>"
+      NETMASK="<%= subnet.mask -%>"
+        
+      <% if !subnet.gateway.nil? && !subnet.gateway.empty? -%>
+        GATEWAY="<%= subnet.gateway %>"
+      <% end -%>
+    <% end -%>
+  
+    DEVICE="${real}"
+    ONBOOT=yes
+    PEERDNS=no
+    PEERROUTES=no
+    DEFROUTE="<%= bond.primary ? 'yes' : 'no' -%>"
+    TYPE=Bond
+    BONDING_OPTS="mode=<%= bond.mode -%> <%= bond.bond_options -%>"
+    BONDING_MASTER=yes
+    NM_CONTROLLED=<%=nmcontrolled%>
+EOF
+#^ EOF needs to be at the beginning of the line
+
+    # Loop 1.1: iterate over all managed slave interfaces of this bond
+  <% @host.interfaces_with_identifier(bond.attached_devices_identifiers).each do |interface| -%>
+    <% next if !interface.managed? -%>
+
+    <% 
+    subnet = interface.subnet
+    virtual = interface.virtual?
+    vlan = virtual && (subnet.has_vlanid? || interface.vlanid.present?)
+    alias_type = virtual && !subnet.nil? && !subnet.has_vlanid? && interface.identifier.include?(':')
+    dhcp = !subnet.nil? && subnet.dhcp_boot_mode?
+#    real = interface.identifier
+    -%>
+    real=<%= interface.identifier %>
+    <% if virtual -%>
+      real="$(echo <%= interface.identifier -%> | sed s/<%= interface.attached_to -%>/$real/)"
+    <% end -%>
+
+    <% if alias_type -%>
+      # ifcfg files are ignored by NM if their name contains colons so we convert colons to underscore
+      sanitized_real="$(echo "${real}" | sed s/:/_/)"
+    <% else -%>
+      sanitized_real="${real}"
+    <% end -%>
+    cat <<- EOF > "/etc/sysconfig/network-scripts/ifcfg-${sanitized_real}"
+      BOOTPROTO="none"
+      DEVICE="${real}"
+      <% unless virtual -%>
+        HWADDR="<%= interface.mac -%>"
+      <% end -%>
+      ONBOOT=yes
+      PEERDNS=no
+      PEERROUTES=no
+      <% if vlan -%>
+        VLAN=yes
+      <% elsif alias_type -%>
+        TYPE=Alias
+      <% end -%>
+      MASTER=<%= bond.identifier %>
+      SLAVE=yes
+      NM_CONTROLLED=<%=nmcontrolled%>
+EOF
+#^ EOF needs to be at the beginning of the line
+
+    <% bonded_interfaces.push(interface.identifier) -%>
+  <% end %><%# end of Loop 1.1 -%>
+<% end %><%# end of Loop 1 -%>
+
+# iterate over all interfaces that
+# - are managed
+# - have a subnet
+# - are not slaves of a bond
+
+<% @host.managed_interfaces.each do |interface| %>
+  # skip unmanaged and interfaces, which have no subnet defined
+  <% next if !interface.managed? || interface.subnet.nil? -%>
+  
+  # skip, if we cannot find the interface in the bonded interface list
+  <% next if bonded_interfaces.include?(interface.identifier) -%>
+
+  <% 
+  subnet = interface.subnet
+  virtual = interface.virtual?
+  vlan = virtual && (subnet.has_vlanid? || interface.vlanid.present?)
+  alias_type = virtual && !subnet.has_vlanid? && interface.identifier.include?(':')
+  dhcp = subnet.dhcp_boot_mode?
+  -%>
+
+  <% if vlan -%>
+    real=<%=interface.identifier%>
+  <% else -%>
+    real="$(ip -o link | grep <%= interface.inheriting_mac -%> | awk '{print $2;}' | sed s/:$//)"
+    # re-define real, if we have a virtual interface
+    <% if virtual -%>
+      real="$(echo <%= interface.identifier -%> | sed s/<%= interface.attached_to -%>/$real/)"
+    <% end -%>
+  <% end -%>
+
+  <% if alias_type -%>
+    # ifcfg files are ignored by NM if their name contains colons so we convert colons to underscore
+    sanitized_real="$(echo $real | sed s/:/_/)"
+  <% else -%>
+    sanitized_real=$real
+  <% end -%>
+
+  cat <<- EOF > "/etc/sysconfig/network-scripts/ifcfg-${sanitized_real}"
+    BOOTPROTO="<%= dhcp ? 'dhcp' : 'none' -%>"
+    <% unless dhcp -%>
+      IPADDR="<%= interface.ip -%>"
+      NETMASK="<%= subnet.mask -%>"
+      <% if !subnet.gateway.nil? && !subnet.gateway.empty? -%>
+        GATEWAY="<%= subnet.gateway %>"
+      <% end -%>
+    <% end -%>
+    
+    DEVICE="${real}"
+    <% unless virtual -%>
+      HWADDR="<%= interface.mac -%>"
+    <% end -%>
+    ONBOOT=yes
+    <% if interface.respond_to?(:primary) && interface.primary -%>
+      PEERDNS=yes
+      PEERROUTES=yes
+      DOMAIN=<%= @host.domain %>
+      <% if !dhcp && !subnet.dns_primary.nil? && !subnet.dns_primary.empty? -%>
+        DNS1=<%= subnet.dns_primary %>
+      <% end -%>
+      <% if !subnet.dns_secondary.nil? && !subnet.dns_secondary.empty? -%>
+        DNS2=<%= subnet.dns_secondary %>
+      <% end -%>
+    <% else -%>
+      PEERDNS=no
+      PEERROUTES=no
+    <% end -%>
+
+    <% if vlan -%>
+      VLAN=yes
+    <% elsif alias_type -%>
+      TYPE=Alias
+    <% end -%>
+    NM_CONTROLLED=<%=nmcontrolled%>
+    NAME="${real}"
+EOF
+<% end %>
+
+# as we have indentation within the kickstart (for better readability), we fix it now
+for file in "/etc/sysconfig/network-scripts/"ifcfg-*; do
+  sed -i -E 's/^[[:space:]]+//g' "${file}"
+  sed -i '/^$/d' "${file}"
+done

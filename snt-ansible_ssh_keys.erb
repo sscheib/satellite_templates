@@ -1,0 +1,99 @@
+<%#
+kind: snippet
+name: snt-ansible_ssh_keys
+model: ProvisioningTemplate
+snippet: true
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description:
+Snippet to create a user for Ansible automation and add the SSH keys to the created user.
+
+custom snippets:
+  none
+
+snippets:
+  none
+  
+supported host parameters:
+> host parameter name                    | type      | description                                                                  <
++----------------------------------------+-----------+-------------------------------------------------------------------------------
+> p-ansible_ssh_user                     | string    | User for which remote_execution_ssh_keys will be authorized
+*                                        |           | Default: 'remote-ansible'
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+> p-ansible_ssh_user_comment             | string    | Comment to set for the user
+*                                        |           | Default: 'Red Hat Ansible Automation Platform Remote User'
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+> p-ansible_ssh_keys                     | string    | Public keys to be put in <ssh_user>/.ssh/authorized_keys
+*                                        |           | One key per line should be added
+*                                        |           | Default: Unset
++----------------------------------------+-----------+------------------------------------------------------------------------------>
+
+changelog:
+28.05.2023 - Steffen Scheib:
+- Prefixing parameters with p-
+
+11.03.2022 - Steffen Scheib:
+- Replaced static remote_execution sudoers.d file with <user_name> (eg. /etc/suders.d/remote_ansible)
+
+12.12.2021 - Steffen Scheib:
+- Initial version
+%>
+
+write_output "Starting processing snippet snt-ansible_ssh_keys" "INFO";
+  
+<% ssh_user = host_param('p-ansible_ssh_user') || 'remote-ansible' %>
+write_output "Ansible user: <%= ssh_user %>" "INFO";
+
+<% ssh_user_comment = host_param('p-ansible_ssh_user_comment') || 'Red Hat Ansible Automation Platform Remote User' %>
+write_output "Ansible user comment: <%= ssh_user_comment %>" "INFO";
+  
+<% ssh_path = "/home/#{ssh_user}/.ssh" %>
+write_output "Ansible user SSH path: <%= ssh_path %>" "INFO";
+
+<% sudoers_file = '/etc/sudoers.d/' + ssh_user.gsub('-', '_') %>
+write_output "Ansible suders.d file: <%= sudoers_file %>" "INFO";
+
+# add the local user
+useradd -m <%= ssh_user %> --uid 2001 -c "<%= ssh_user_comment %>"
+cat <<- EOF >> <%= sudoers_file %>
+  <%= ssh_user %>    ALL=(ALL) NOPASSWD:    ALL
+EOF
+# ^ EOF needs to be on the beginning of the line!
+
+# remove prepended white spaces
+sed -i -E 's/^[[:space:]]+//g' <%= sudoers_file %>
+
+# create the .ssh folder and add the SSH keys to authorized_keys
+mkdir -p <%= ssh_path %>
+cat <<- EOF >> <%= ssh_path %>/authorized_keys
+  <%= host_param('p-ansible_ssh_keys').join('\n') %>
+EOF
+# ^ EOF needs to be on the beginning of the line!
+
+# remove prepended white spaces
+sed -i -E 's/^[[:space:]]+//g' <%= ssh_path %>/authorized_keys
+
+# set proper permissions
+chmod 700 <%= ssh_path %>
+chmod 600 <%= ssh_path %>/authorized_keys
+chown -R <%= "#{ssh_user}:" %> <%= ssh_path %>
+
+# Restore SELinux context with restorecon, if it's available:
+command -v restorecon && restorecon -RvF <%= ssh_path %> || true
+
+write_output "Successfully finished processing snippet snt-ansible_ssh_keys" "INFO";

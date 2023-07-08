@@ -1,0 +1,72 @@
+<%#
+kind: snippet
+name: snt-ansible_provisioning_callback_service
+model: ProvisioningTemplate
+snippet: true
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description:
+Snippet which generates a systemd service that runs the script /usr/local/sbin/request_ansible_automation_controller_configuration.sh and disables itself afterwards
+
+custom snippets:
+  none
+
+snippets:
+  none
+  
+supported host parameters:
+> host parameter name                    | type      | description                                                                  <
++----------------------------------------+-----------+-------------------------------------------------------------------------------
+> p-ansible_host_config_key              | string    | Host config key to pass to the Ansible Automation Controller call
+*                                        |           | Default: None
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+> p-ansible_job_template_id              | integer   | ID of the job template to trigger of the Ansible Automation Controller
+*                                        |           | Default: None
++----------------------------------------+-----------+-------------------------------------------------------------------------------
+> p-ansible_controller_host              | string    | Ansible Automation Platform Controller host
+*                                        |           | Default: None
++----------------------------------------+-----------+------------------------------------------------------------------------------>
+
+changelog:
+20.05.2023 - Steffen Scheib:
+- Renamed script to request_ansible_automation_controller_configuration.sh
+
+19.12.2021 - Steffen Scheib:
+- Added -e and provided a dummy parameter and value, since ansible_ssh_port has to be set within the joblevel
+
+12.10.2021 - Steffen Scheib:
+- Added supported host parameters section
+
+11.10.2021 - Steffen Scheib:
+- Added utilization of __ANSIBLE_AUTOMATION_CONTROLLER
+
+09.10.2021 - Steffen Scheib:
+- Initial version
+%>
+[Unit]
+Description=Provisioning callback to Ansible Ansible Automation Platform Controller
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /usr/local/sbin/request_ansible_automation_controller_configuration.sh -k -s "<%= host_param('p-ansible_controller_host') -%>" -c "<%= host_param('p-ansible_host_config_key') -%>" -t "<%= host_param('p-ansible_job_template_id') -%>" -i "<%= @host.ip -%>" -e 'dummy: dummy'
+ExecStartPost=/usr/bin/systemctl disable ansible-callback
+
+[Install]
+WantedBy=multi-user.target

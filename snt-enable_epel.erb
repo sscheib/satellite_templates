@@ -1,0 +1,47 @@
+<%#
+kind: snippet
+name: snt-enable_epel
+model: ProvisioningTemplate
+snippet: true
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+
+<%#
+author: author: Steffen Scheib (steffen@scheib.me)
+
+description:
+Enables EPEL again if it was initially found being enabled within the activation key.
+
+custom snippets:
+  none
+
+snippets:
+  none
+
+changelog:
+04.09.2021 - Steffen Scheib:
+- Initial version
+-%>
+
+write_output "Started processing snippet 'snt-enable_epel'" "INFO";
+
+if [[ "${foundEpelRepositoryId}" -eq 0 ]] && [[ "${foundEpelRepositoryName}" -eq 0 ]]; then
+  write_output "Enabling EPEL repository again" "INFO";
+  subscription-manager repos --enable "${__REPOSITORY_ID}"
+else
+  write_output "EPEL was not enabled initially, skipping enabling it" "INFO";
+fi
+
+write_output "Successfully finished processing snippet 'snt-enable_epel'" "INFO";

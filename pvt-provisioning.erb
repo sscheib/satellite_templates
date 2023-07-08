@@ -1,0 +1,473 @@
+<%#
+kind: provision
+name: pvt-provisioning
+model: ProvisioningTemplate
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description:
+This kickstart provisioning template is the "base" template and contains all required key arguments for the kickstart installation.
+
+custom snippets:
+- snt-post_provisioning_init
+- snt-subscription_manager_registration
+- snt-configure_time_synchronization
+- snt-remote_execution_ssh_keys
+- snt-enable_epel
+- snt-networking_setup_post_installation
+- snt-luks_encryption
+
+snippets:
+  none
+  
+supported host parameters:
+> host parameter name                    | type      | snippet/template name                        | description                                     <
+-----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> lang                                   | string    | pvt-provision                                | Language to set for the operating system
+*                                        |           |                                              | Default: 'en_US.UTF-8'
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> keyboard                               | string    | pvt-provision                                | Keyboard layout to use for the operating system
+*                                        |           |                                              | Default: 'de'
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> selinux                                | string    | pvt-provision                                | Mode of SELinux to set for the operating system
+*                                        |           |                                              | Default: 'enforcing'
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> time-zone                              | string    | pvt-provision                                | Timezone the operating system should be set to
+*                                        |           |                                              | Default: 'UTC'
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-encrypt_system                       | boolean   | pvt-provision                                | Whether to encrypt the system with luks
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-ks_debug                             | boolean   | snt-post_provisioning_init                   | If true, the %post section will enable set -x for
+*                                        |           |                                              | BASH
+*                                        |           |                                              | Default: false
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> syspurpose_role                        | string    | snt-subscription_manager_registration        | If set, sets the syspurpose role within 
+*                                        |           |                                              | subscription-manager
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> syspurpose_usage                       | string    | snt-subscription_manager_registration        | If set, sets the syspurpose usage within
+*                                        |           |                                              | subscription-manager
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> syspurpose_sla                         | string    | snt-subscription_manager_registration        | If set, sets the syspurpose SLA within
+*                                        |           |                                              | subscription-manager
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> syspurpose_addons                      | string    | snt-subscription_manager_registration        | If set, sets the syspurpose addons within
+*                                        |           |                                              | subscription-manager
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> additional_repositories                | string    | snt-subscription_manager_registration        | Additional repositories to enable to the already 
+*                                        |           |                                              | enabled within the activation key. Repositories 
+*                                        |           |                                              | have to be passed as comma-seperated string 
+*                                        |           |                                              | Example: 'repo1,repo2'
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> idm_ssh                                | boolean   | snt-idm_register                             | If false, disables sssd ssh integration with 
+*                                        |           |                                              | command line parameter --no-ssh
+*                                        |           |                                              | Default: true
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> idm_mkhomedir                          | boolean   | snt-idm_register                             | If false, disables the configuration of ssd for 
+*                                        |           |                                              | automatical creation of home 
+*                                        |           |                                              | directories (--mkhomedir will not be passed as 
+*                                        |           |                                              | argument)
+*                                        |           |                                              | Default: true
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> idm_opts                               | string    | snt-idm_register                             | If set, these additional command line parameters 
+*                                        |           |                                              | will be passed to the ipa-client-install command
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> remote_execution_ssh_user              | string    | snt-remote_execution_ssh_keys                | User for which remote_execution_ssh_keys will be
+*                                        |           |                                              | authorized
+*                                        |           |                                              | Default: 'satellite-remote'
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> remote_execution_ssh_user_comment      | string    | snt-remote_execution_ssh_keys                | Comment to set for the user
+*                                        |           |                                              | Default: 'RedHat Satellite Remote User'
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-remote_execution_ssh_keys            | string    | snt-remote_execution_ssh_keys                | Public keys to be put in 
+*                                        |           |                                              | <ssh_user>/.ssh/authorized_keys
+*                                        |           |                                              | One key per line should be added
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> dns_alt_names                          | string    | snt-puppet                                   | If set, sets the alternative dns name in the 
+*                                        |           |                                              | Puppet configuration file
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-ks_debug_network                     | boolean   | snt-networking_setup_post_installation       | If true, writes networking information for 
+*                                        |           |                                              | debugging purposed to 
+*                                        |           |                                              | /root/network_during_installation.log
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-crypted_system_initial_passphrase    | string    | snt-luks_encryption                          | This passphrase was used to initially create the 
+*                                        |           |                                              | luks partition and within this snippet will be
+*                                        |           |                                              | removed again
+*                                        |           |                                              | Default: Some Secret Password :)
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-ansible_provisioning                 | boolean   | pvt-provisioning                             | Determines whether post provisioning with Ansible
+*                                        |           |                                              | should be done
+*                                        |           |                                              | Default: true
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-ansible_host_config_key              | string    | snt-ansible_provisioning_callback_service    | Host config key to pass to the Ansible 
+*                                        |           |                                              | Automation Controller call
+*                                        |           |                                              | Default: None
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-ansible_job_template_id              | integer   | snt-ansible_provisioning_callback_service    | ID of the job template to trigger of the 
+*                                        |           |                                              | Ansible Automation Controller
+*                                        |           |                                              | Default: None
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-ansible_ssh_user                     | string    | snt-ansible_ssh_keys                         | User for which p-ansible_ssh_keys will be authorized
+*                                        |           |                                              | Default: 'remote-ansible'
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-ansible_ssh_user_comment             | string    | snt-ansible_ssh_keys                         | Comment to set for the user
+*                                        |           |                                              | Default: 'Red Hat Ansible Automation Platform Remote User'
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-ansible_ssh_keys                     | string    | snt-ansible_ssh_keys                         | Public keys to be put in <ssh_user>/.ssh/authorized_keys
+*                                        |           |                                              | One key per line should be added
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-ansible_controller_host              | string    | snt-ansible_provisioning_callback_service    | Ansible Automation Controller Host
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-enable_fips_deployment               | boolean   | pvt-provisioning                             | Whether to enable FIPS mode
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+------------------------------------------------->
+
+
+exit codes:
+0: Installation successfully finished
+1: Unable to determine package manager to use
+2: Unused
+3: Host parameter 'p-encrypt_system' given (true), but unable to determine a single currently installed kernel and thus cannot decide which kernel version to use
+4: Host parameter 'p-encrypt_system' given (true), but no Tang servers could be discovered using _tang._tcp.@host.domain
+5: Host parameter 'p-encrypt_system' given (true), but not all Tang servers discovered via _tang._tcp.@host.domain were reachable
+6: Host parameter 'p-encrypt_system' given (true), but it was discovered, that GRUB_CMDLINE_LINUX in file /etc/default/grub is empty
+7: /var/log is not mounted
+8: Realm is not set
+9: Command 'dig' is not available
+10: Unable to create directory /mnt/sysimage/var/log/journal
+11: Unable to run command 'sync'
+
+Note: These are only the *defined* exit codes! If a command exits with an error (exit code not equals zero) within the main %post section,
+      this exit code will be used to exit the post installation.
+      
+log files:
+> log file path                                         | description <
++-------------------------------------------------------+--------------------------------------------------------------------------------------------+
+> /root/install.post.no.chroot.log                      | Contains the log of the first post section without chroot, which basically copies only the
+>                                                       | file /etc/resolv.conf from the host system to the chroot
++-------------------------------------------------------+--------------------------------------------------------------------------------------------+
+> /root/install.post.script.log                         | Contains the output of the "main" post section from the function write_output
++-------------------------------------------------------+--------------------------------------------------------------------------------------------+
+> /root/install.post.log                                | Contains stdout and stderr of the "main" post section
++-------------------------------------------------------+--------------------------------------------------------------------------------------------+
+> /root/install.post.no.chroot.journal.log              | Contains the output from the post section, which makes journald logs persistent
++-------------------------------------------------------+--------------------------------------------------------------------------------------------+
+> /root/install.post.notification.log                   | Contains the output of the post section, which notifies foreman about the finished build
++-------------------------------------------------------+-------------------------------------------------------------------------------------------->
+
+Note:
+The paths are the view from an installed machine. If you are in an anaconda installation, /mnt/sysimage has to be prepended.
+For example: /mnt/sysimage/root/install.post.script.log
+
+changelog:
+28.05.2023 - Steffen Scheib:
+- Fixing missed renaming of ansible_ssh_keys to p-ansible_ssh_keys while including the snippet to set up the Ansible user
+- Adding support for p-enable_fips_deployment
+
+20.05.2023 - Steffen Scheib:
+- Set selinux to enforcing by default
+- Set keyboard to German by default
+- Renamed custom parameters to include a prefix
+
+20.05.2023 - Steffen Scheib:
+- Adjusted variables to Ansible Automation Platform
+
+06.03.2022 - Steffen Scheib:
+- Added call to snippet snt-idm_register
+
+12.12.2021 - Steffen Scheib:
+- Added call to snippet snt-ansible_ssh_keys
+- Added supported host parameters:
+  - ansible_ssh_user
+  - ansible_ssh_user_comment
+  - ansible_ssh_keys
+
+12.10.2021 - Steffen Scheib:
+- Added following parameters to the supported host parameters
+  - ansible_host_config_key
+  - ansible_job_template_id
+- Fixed layout and some comments in the supported host parameters section
+
+10.10.2021 - Steffen Scheib:
+- Added ansible_tower_provisioning host parameter to the list of supported parameters
+- Added check for dig to pvt-provisioning
+
+27.09.2021 - Steffen Scheib:
+- Added bind-utils to be installed within the %post section as dig is needed to determine the NTP server to use
+- Moved installation of extra packages before the NTP/chrony setup (as dig is needed)
+- Added __NTP_SERVER definition from snippet into %post section
+- Added Ansible Tower provisioning
+
+05.09.2021 - Steffen Scheib:
+- Removed generation of random root passwords
+
+04.09.2021 - Steffen Scheib:
+- Initial version
+-%>
+
+<%
+  # set some variables, which are used later in the %post sections
+  section_end = '%end'
+  subnet = @host.subnet
+  os_major = @host.operatingsystem.major.to_i
+  os_minor = @host.operatingsystem.minor.to_i
+%>
+
+<% if os_major <= 7 -%>
+  # keyword install is not supported anymore starting from RHEL 8
+  install
+<% end -%>
+
+# include kickstart repository as installation source
+<%= @mediapath %>
+
+lang <%= host_param('lang') || 'en_US.UTF-8' %>
+selinux --<%= host_param('selinux') || 'enforcing' %>
+keyboard <%= host_param('keyboard') || 'de' %>
+skipx
+services --disabled gpm,sendmail,cups,pcmcia,isdn,rawdevices,hpoj,bluetooth,openibd,avahi-daemon,avahi-dnsconfd,hidd,hplip,pcscd
+
+<% subnet = @host.subnet -%>
+<% if subnet.respond_to?(:dhcp_boot_mode?) -%>
+  <% dhcp = subnet.dhcp_boot_mode? && !@static -%>
+<% else -%>
+  <% dhcp = !@static -%>
+<% end -%>
+
+network --bootproto <%= dhcp ? 'dhcp' : "static --ip=#{@host.ip} --netmask=#{subnet.mask} --gateway=#{subnet.gateway} --nameserver=#{[subnet.dns_primary, subnet.dns_secondary].select{ |item| item.present? }.join(',')} --mtu=#{subnet.mtu.to_s}" %> --hostname <%= @host %> --device=<%= @host.mac %>
+
+rootpw --iscrypted <%= root_pass %>
+firewall --service ssh
+
+<% if os_major > 7 -%>
+  authselect --useshadow --passalgo=sha512 --kickstart
+<% else -%>
+  authconfig --useshadow --passalgo=sha512 --kickstart
+<% end -%>
+
+timezone <%= host_param('time-zone') || 'UTC' %> --utc
+bootloader --location=mbr --append="splash=quiet" <%= grub_pass %>
+
+<% if @dynamic -%>
+  %include /tmp/diskpart.cfg
+<% else -%>
+  <%= @host.diskLayout %>
+<% end -%>
+
+text
+reboot
+
+%packages
+  dhclient
+  <% if os_major <= 7 -%>
+    ntp
+  <% else -%>
+    chrony
+  <% end -%>
+  rsync
+  @Core
+  lsof
+  net-tools
+  sos
+<%= section_end -%>
+
+<% if @dynamic -%>
+  %pre
+    <%= @host.diskLayout %>
+  <%= section_end -%>
+<% end -%>
+
+%post --interpreter=/bin/bash --nochroot --log=/mnt/sysimage/root/install.post.no.chroot.log
+  # changing to VT 3 so that we can see whats going on
+  exec < /dev/tty3 > /dev/tty3
+  chvt 3
+  cp -va /etc/resolv.conf /mnt/sysimage/etc/resolv.conf
+  
+  # change back to VT 1
+  /usr/bin/chvt 1
+<%= section_end -%>
+
+%post --interpreter=/bin/bash --log=/root/install.post.log
+  # changing to VT 3 so that we can see whats going on
+  exec < /dev/tty3 > /dev/tty3
+  chvt 3
+  
+  logger "Starting anaconda <%= @host %> postinstall"
+
+  # Define variables and create the BASH traps
+  <%= snippet('snt-post_provisioning_init') %>  
+ 
+  # import GPG keys
+  # this is necessary for dnf/yum to not report a warning when automatically importing the
+  # GPG keys, while installing a package the first time (and thus exiting with > 0, which
+  # will result in an aborted installation)
+  write_output "Importing GPG key from '${__RHEL_GPG_KEY}'" "INFO";
+  rpm --import "${__RHEL_GPG_KEY}"
+  rpmkeys --import "${__RHEL_GPG_KEY}"
+
+  <% if subnet.respond_to?(:dhcp_boot_mode?) -%>
+    <%= snippet('snt-networking_setup_post_installation') %>
+  <% end -%>
+
+  # register system to Capsule/Satellite
+  <%= snippet('snt-subscription_manager_registration') %>
+    
+  # install some packages, which are not part of the kickstart (baseOS) repository
+  declare __PACKAGES="sysstat wget tmux vim-enhanced bind-utils"
+  <% if os_major <= 7 -%>
+    __PACKAGES+="redhat-lsb-core"
+  <% end -%>
+  ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} install ${__PACKAGES}
+  
+  # check if dig is available
+  command -v dig &> /dev/null || {
+    write_output "Binary 'dig' is not available - unable to determine NTP server!" "ERROR";
+    exit 9;
+  }
+  
+  # use dig to retrieve a SRV record for ntp
+  # every zone should have an ntp record like: _ntp._udp.<domain>
+  # Example:
+  # _ntp._udp.office.int.scheib.me
+  # _ntp._udp.pve.ext.scheib.me
+  # 
+  # Note: only the returned server name is evaluated, the port and the weight will be ignored
+  # defines the ntp server, which will be used in snt-configure_time_synchronization and snt-idm_register
+  declare -r __NTP_SERVER="$(dig +short _ntp._udp.<%= @host.domain -%> SRV | awk '{print $4}' | sed 's/\.$//')"
+  
+  # Configure /etc/ntp.conf (RHEL 7) or /etc/chrony.conf (RHEL 8)
+  <%= snippet('snt-configure_time_synchronization') %>
+
+  # update all packages
+  ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} update
+  
+  # disable postfix if installed
+  if systemctl list-unit-files --type service | grep -q 'postfix'; then
+    systemctl disable postfix
+  fi
+  
+  # register system to IDM
+  <% if host_enc['parameters']['realm'] && @host.realm && @host.realm.realm_type == 'Red Hat Identity Management' -%>
+    <%= snippet "snt-idm_register" %>
+  <% end -%>
+  
+  # create remote execution user and add the appropriate ssh keys if both remote_execution_ssh_user and 
+  # remote_execution_ssh_keys host parameters are set
+  <% if !host_param('remote_execution_ssh_user').blank? && !host_param('remote_execution_ssh_keys').blank? %>
+    <%= snippet('snt-remote_execution_ssh_keys') %>
+  <% end -%>
+  
+    
+  # create user for Ansible and add the appropriate ssh keys if and 
+  # ansible_ssh_keys host parameter is set
+  <% if !host_param('p-ansible_ssh_keys').blank? %>
+    <%= snippet('snt-ansible_ssh_keys') %>
+  <% end -%>
+
+  # enable EPEL again (if it was enabled)
+  <%= snippet('snt-enable_epel') %>
+
+  <% if host_param('p-encrypt_system') %>
+    # add a cleavis bind for luks and remove initial passphrase
+    <%= snippet('snt-luks_encryption') %>    
+  <% end -%>
+
+  <% if host_param_true?('p-ansible_provisioning') -%>
+    write_output "Ansible post configuration has been asked, setting up the one shot service." "INFO";
+    cat <<- 'EOF' > '/usr/local/sbin/request_ansible_automation_controller_configuration.sh'
+    <%= snippet('snt-ansible_provisioning_callback_script') %>
+EOF
+    <%= save_to_file('/etc/systemd/system/ansible-callback.service', snippet('snt-ansible_provisioning_callback_service')) %>
+    # runs during first boot, removes itself
+    systemctl enable ansible-callback
+  <% end -%>
+
+  <% if host_param_true?('p-enable_fips_deployment') -%>
+    write_output "Enabling FIPS mode." "INFO";
+    fips-mode-setup --enable
+  <% end -%>
+  
+  write_output "Telling the system to relabel SELinux contexts upon restart" "INFO";
+  touch "/.autorelabel"
+  
+  # tell the system to write all data to disk (if there is any unwritten data)
+  sync
+
+  # the installation has been successful :)
+  touch /tmp/installation.successful
+  
+  exit 0
+<%= section_end -%>
+
+# Note: to have control over systemd, we are not chrooting within this %post section
+%post --nochroot --log=/mnt/sysimage/root/install.post.no.chroot.journal.log
+  <% if @host.operatingsystem.major.to_i >= 8 %>
+    # create /sysimage/var/log/journal and trigger reloading of systemd-journald
+    # we need to *absolutely* make sure, that /var/log is mounted
+    mountpoint /mnt/sysimage/var/log || {
+      echo "ERROR: /sysimage/var/log is not mounted!";
+      exit 7;
+    };
+  
+    # create persistent journal directory
+    mkdir -v /mnt/sysimage/var/log/journal || {
+      echo "ERROR: Failed to create directory '/sysimage/var/log'!";
+      exit 10;
+    };
+  
+    # reload systemd-journald in order to pick up the change and write current
+    # logs to the disk
+    systemctl restart systemd-journald || {
+      echo "ERROR: Failed to create directory '/sysimage/var/log'!";
+      exit 11;
+    };
+  
+    # tell the system to write all data to disk (if there is any unwritten data)
+    sync || {
+      echo "ERROR: Failed to run command 'sync'!";
+      exit 11;
+    };
+  <% else -%>
+    echo "INFO: Operating system major version is less than 8, not creating folder /var/log/journal"
+  <% end -%>
+<%= section_end -%>
+
+# this %post section will be run as the last post section and will notify foreman about the build
+%post --interpreter=/bin/bash --log=/root/install.post.notification.log
+  declare foremanUrl=""
+  # file is created only if no error happened
+  if [[ -f /tmp/installation.successful ]]; then
+    foremanUrl="<%= foreman_url('built') %>"
+  else
+    foremanUrl="<%= foreman_url('failed') %>"
+  fi
+  
+  # notify foreman
+  curl -v -X POST -o /dev/null --noproxy \* -H 'Content-Type: text/plain' --insecure --data @"/root/install.post.script.log" "${foremanUrl}"
+<%= section_end -%>

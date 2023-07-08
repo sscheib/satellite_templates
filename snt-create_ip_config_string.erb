@@ -1,0 +1,119 @@
+<%#
+kind: snippet
+name: snt-create_ip_config_string
+model: ProvisioningTemplate
+snippet: true
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description:
+'Prints'/Inserts an ip config string to use for kernel parameters.
+Example:
+ip=172.31.1.19::172.31.1.1:255.255.255.0:host.example.com:ens192:off nameserver=172.31.1.1 nameserver=172.31.1.254
+
+custom snippets:
+  none
+
+snippets:
+  none
+
+changelog:
+22.05.2023 - Steffen Scheib:
+- Adjusted example
+
+04.09.2021 - Steffen Scheib:
+- Initial version
+-%>
+<%
+  # define per default (without multiple interfaces with a mac) the kickstart device mac
+  kickstart_device_mac = @host.mac
+  
+  # we need to extend the kernel options for bonds
+  kernel_options = []
+  slave_interfaces = []
+  
+    # iterate over all bond interfaces
+  @host.bond_interfaces.each do |bond|
+        
+        # will hold a list of all slaves of the current bond
+        bond_slaves = []
+        
+        # iterate over all interfaces of the current bond
+        @host.interfaces_with_identifier(bond.attached_devices_identifiers).each do |interface|
+            # we only care about managed interfaces
+            next if !interface.managed?
+            
+            # add the interface to the local list of slaves
+            bond_slaves.push (interface.identifier)
+            
+            # .. and the global list of slaves
+            slave_interfaces.push(interface.identifier)
+        end
+
+        kernel_options.push ("bond=" + bond.identifier + ":" + bond_slaves.join(",") + ":" + "mode=" + bond.mode + "," + bond.bond_options.gsub(" ",","))
+        # this will create a string, looking like follows:
+        # bond=bond0:ens2f0,ens2f1:mode=active-backup,miimon=100,fail_over_mac=follow
+  end
+  
+  # iterate over all managed interfaces
+  @host.managed_interfaces.each do |interface|
+      
+      # check if the interface is a slave
+      if slave_interfaces.include?(interface.identifier)
+          # append ifname=<identifier>:<mac>
+          # example: ifname=<ens2f0>:00:11:0a:6a:93:18
+          kernel_options.push("ifname=" + interface.identifier + ":" + interface.mac)
+          
+          # we are done with this interface
+          next
+      end
+      
+      # skip NOT if:
+      # the interface is virtual AND either the interface subnet has a 
+      # VLAN ID OR the interface itself has a VLAN ID
+      next if !( interface.virtual? && (interface.subnet.has_vlanid? || interface.vlanid.present?) )
+      
+      # get the bond interface of the virtual interface (virtual interface is for example bond0.154)
+      bond_interface = @host.interfaces_with_identifier([interface.attached_to]).first
+      
+      # set the kickstart device mac
+      # not for RHEL 8
+      if @host.operatingsystem.major.to_i < 8
+      kickstart_device_mac = bond_interface.mac
+      end
+      
+      # add a line like follows to the kernel options:
+      # ifname=bond0:00:11:0a:6a:93:18
+      # not for RHEL 8
+      if @host.operatingsystem.major.to_i < 8
+      kernel_options.push("ifname=" + bond_interface.identifier + ":" + bond_interface.mac)
+      end
+      
+      # finally create a string with the following format:
+      # vlan=<virtual_interface_identifier>:<bond_interface_identifier>
+      # example: vlan=bond0.154:bond0
+      kernel_options.push("vlan=" + interface.identifier + ":" + bond_interface.identifier)
+  end
+  
+    # define the ip config string
+  if host_param('static_provisioning_network')	
+   ip_config = "ip=" + @host.ip + ":" + @host.subnet.gateway + ":" + @host.subnet.gateway + ":" + @host.subnet.mask + ":" + @host.name + ":" + @host.provision_interface.identifier + ":off nameserver=" + @host.subnet.dns_primary + " nameserver=" + @host.subnet.dns_secondary + " " + kernel_options.join(" ")
+  else
+   ip_config = "dhcp"
+  end
+-%>
+<%= ip_config %>

@@ -1,0 +1,123 @@
+<%#
+kind: snippet
+name: snt-idm_register
+model: ProvisioningTemplate
+snippet: true
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description:
+Registers the system within the appropriate IdM (IdM enrollment)
+
+custom snippets:
+  none
+
+snippets:
+  none
+
+changelog:
+06.03.2022 - Steffen Scheib:
+- Added declartion of variables to avoid unbound variables error
+- Initial version
+%>
+
+# Identity Management Registration Snippet
+#
+# Optional parameters:
+#
+#   idm_server              IdM server
+#
+#   idm_sudo                Enable sudoers
+#                           Default: true
+#
+#   idm_ssh                 Enable ssh integration
+#                           Default: true
+#
+#   idm_automount           Enable automounter
+#                           Default: false
+#
+#   idm_automount_location  Location for automounts
+#
+#   idm_mkhomedir           Enable automatically making home directories
+#                           Default: true
+#
+#   idm_opts                Additional options to pass directly to installer
+#
+
+<% if @host.operatingsystem.major.to_i <= 7 %>
+  # create host keys
+  /usr/sbin/sshd-keygen
+  
+  # install ipa-client
+  yum install -y libsss_sudo ipa-client
+<% else %>
+  # since RHEL 8 we need to generate the host keys like this .. -_-
+  for keyType in rsa ed25519 ecdsa; do
+    /usr/libexec/openssh/sshd-keygen "${keyType}"   
+  done
+  
+  # install ipa-client 
+  dnf -y module install idm
+<% end %>
+
+# declare variables before using them to avoid unbound variable errors
+declare idm_mkhomedir=""
+declare idm_ssh=""
+declare idm_opts=""
+declare idm_force_ntpd=""
+
+##
+## IDM Client Installation
+##
+<% unless host_param_false? 'idm_mkhomedir' %>
+  idm_mkhomedir="--mkhomedir"
+<% end -%>
+
+<% if host_param_false? 'idm_ssh' %>
+  idm_ssh="--no-ssh"
+<% end -%>
+
+<% if host_param('idm_opts') -%>
+  idm_opts="<%= host_param('idm_opts') %>"
+<% end -%>
+
+# force ntpd usage in RHEL 7 and below
+<% if @host.operatingsystem.major.to_i <= 7 %>
+  idm_force_ntpd="--force-ntpd"
+<% end -%>
+
+# One-time password will be requested at install time. Otherwise, $HOST[OTP] is used as a placeholder value.
+/usr/sbin/ipa-client-install -w '<%= @host.otp || "$HOST[OTP]" %>' -U $idm_mkhomedir $idm_opts $idm_ssh $idm_force_ntpd --ssh-trust-dns --ntp-server "${__NTP_SERVER}"
+
+<% if host_param('ks_debug') %>
+  cat /etc/sssd/sssd.conf
+<% end %>
+##
+## Automounter
+##
+
+<% if host_param('idm_automount_location') -%>
+  automount_location="--location <%= host_param('idm_automount_location') %>"
+<% end -%>
+
+<% if host_param_true? 'idm_automount' -%>
+if [ -f /usr/sbin/ipa-client-automount ]
+then
+  /usr/sbin/ipa-client-automount $idm_server $automount_location --unattended
+fi
+<% end -%>

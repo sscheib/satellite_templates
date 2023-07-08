@@ -1,0 +1,191 @@
+<%#
+kind: snippet
+name: snt-post_provisioning_init
+model: ProvisioningTemplate
+snippet: true
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+description:
+Keeps common bash functions and global variables in one place, instead of declaring them in several templates.
+
+custom snippets:
+    none
+
+snippets:
+    none
+
+supported host parameters:
+> host parameter name                    | type      | description                                                                  <
++----------------------------------------+-----------+-------------------------------------------------------------------------------
+> p-ks_debug                             | boolean   | Enables bash -x to support debugging of the post section
+*                                        |           | Default: Unset
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+
+changelog:
+22.05.2023 - Steffen Scheib:
+- Removed __ANSIBLE_AUTOMATION_CONTROLLER again in favour of using host parameter 'p-ansible_controller_host', which
+  is used in snt-ansible_provisioning_callback_service 
+
+11.10.2021 - Steffen Scheib:
+- Added __ANSIBLE_AUTOMATION_CONTROLLER which determines the Ansible Automation Controller to use
+
+27.09.2021 - Steffen Scheib:
+- Moved __NTP_SERVER definition to pvt-provisioning
+
+04.09.2021 - Steffen Scheib:
+- Initial version
+-%>
+
+# define some useful ruby variables
+<%
+    activation_key = host_param('kt_activation_keys')
+    section_end = '%end'
+    subscription_manager_certpkg_url = subscription_manager_configuration_url(@host)
+    subscription_manager_org = @host.rhsm_organization_label
+    os_major = @host.operatingsystem.major.to_i
+    os_minor = @host.operatingsystem.minor.to_i
+    use_ntp = os_major <= 7
+%>
+
+#
+# BASH settings
+#
+  
+# exit immediately if a command fails
+set -o errexit
+
+# make the whole pipe fail if any commands within the pipe fail
+set -o pipefail
+
+# treats unset variables as an error while performing parameter expansion
+# special parameters $* and $@ are not affected from this
+set -o nounset
+
+# enable inherting of ERR traps to subshells
+set -o errtrace
+
+# enable inherting of DEBUG and RETURN traps to subshells
+set -o functrace
+  
+<% if host_param_true?('p-ks_debug') -%>
+    # enable BASH "debugging" (using echo as write_output not defined yet)
+    echo "Enabling BASH 'debugging'"
+    set -x
+<% end -%>
+  
+#
+# END BASH settings
+#
+
+#
+# function definitions
+#
+function errorTrap () {
+    declare -i lineNumber="${1:-LINENO}"
+    declare -i bashLineNumber="${2:-BASH_LINENO}"
+    declare lastCommand="${3:-${BASH_COMMAND}}"
+    declare exitCode="${4:-0}"
+
+    # workaround for read EOF combo tripping traps
+    [[ "${exitCode}" -ne 0 ]] || {
+        return "${exitCode}";
+    };
+
+    declare lastCommand_height="$(wc -l <<< "${lastCommand}")"
+    declare -a output=()
+    output+=(
+        "#----------------------->"
+        "lines history : [${lineNumber} ${bashLineNumber[*]}]"
+        "function trace: [${FUNCNAME[*]}]"
+        "exit code     : ${exitCode}"
+    )
+
+    if [[ "${lastCommand_height}" -gt 1 ]]; then
+        output+=(
+        "last command  : ->"
+        "${lastCommand}"
+        )
+    else
+        output+=("last command  : ${lastCommand}")
+    fi
+
+    output+=('<-----------------------#')
+    for line in "${output[@]}"; do
+        echo "$(date +'%H:%M:%S - %d.%m.%Y'): ${line}" 
+        echo "$(date +'%H:%M:%S - %d.%m.%Y'): ${line}" >> /root/install.post.script.log
+    done
+    exit "${exitCode}";
+} #; function errorTrap ( <lineNumber> <bashLineNumber> <lastCommand> <exitCode> )
+
+function exitTrap () {
+    declare -i exitCode="${1:-0}"
+
+    # only create the file /tmp/installation.successful if the
+    # exit code is 0
+    [[ "${exitCode}" -ne 0 ]] || {
+        touch "/tmp/installation.successful";
+    };
+
+    # tell the system to write any unwritten data to the disk
+    sync
+
+    # return with the provided exitCode
+    return "${exitCode}";
+} #; function exitTrap ( <exitCode> )
+
+function write_output () {
+    [[ -n "${1}" ]] || {
+        echo "ERROR: Function write_output did not receive the first argument (message)!";
+    };
+    declare message="${1}"
+    declare level="${2:-UNKNOWN}"
+
+    echo "$(date +'%H:%M:%S - %d.%m.%Y'): ${level}: ${message}"
+    echo "$(date +'%H:%M:%S - %d.%m.%Y'): ${level}: ${message}" >> /root/install.post.script.log
+} #; function write_output <message> [level]
+  
+#
+# END function definitions
+#
+
+# define some traps
+trap 'errorTrap "LINENO" "BASH_LINENO" "${BASH_COMMAND}" "${?}"' ERR
+trap 'exitTrap "${?}"' EXIT
+
+# global variables
+# defines the package manager used
+declare __PACKAGE_MANAGER=""
+# defines the arguments to pass to the package manager
+declare __PACKAGE_MANAGER_ARGUMENTS=""
+
+# defines the path to the RHEL GPG key
+declare -r __RHEL_GPG_KEY="/etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release"
+
+# Detects default package manager
+if [[ -f "/bin/dnf" ]] || [[ -f "/usr/bin/dnf" ]]; then
+    write_output "Using dnf as package manager" "INFO";
+    __PACKAGE_MANAGER="dnf"
+    __PACKAGE_MANAGER_ARGUMENTS="-y"
+elif [[ -f "/bin/yum" ]] || [[ -f "/usr/bin/yum" ]]; then
+    write_output "Using yum as package manager" "INFO";
+    __PACKAGE_MANAGER="yum"
+    __PACKAGE_MANAGER_ARGUMENTS="-ty"
+else
+    write_output "Unable to determine the package manager to use!" "ERROR";
+    exit 1;
+fi

@@ -1,0 +1,80 @@
+<%#
+kind: PXELinux
+name: pvt-pxelinux
+model: ProvisioningTemplate
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description:
+This is the PXELinux template, which is also required to create any boot disk (full, generic, host) if using iPXE/gPXE.
+
+custom snippets:
+- snt-create_ip_config_string
+
+snippets:
+- none
+
+supported host parameters:
+> host parameter name                    | type      | description                                                                  <
++----------------------------------------+-----------+-------------------------------------------------------------------------------
+> p-enable_fips_deployment               | boolean   | Whether the image should be booted with fips mode enabled to ensure a FIPS
+*                                        |           | compliant system during installation 
+*                                        |           | Default: Unset
++----------------------------------------+-----------+-------------------------------------------------------------------------------
+> blacklist                              | string    | Kernel modules to blacklist while booting this image
+*                                        |           | Default: Unset
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+
+changelog:
+25.05.2023 - Steffen Scheib:
+- Adding support for p-enable_fips_deployment which will append fips=1 to the kernel arguments if enabled
+- Adding support host parameters section
+
+04.09.2021 - Steffen Scheib:
+- Initial version
+%>
+
+#
+# Custom template supporting hardware servers
+#
+# Supported host/hostgroup parameters:
+#
+# blacklist = module1, module2
+#   Blacklisted kernel modules
+#
+<%
+  options = []
+  if host_param('blacklist')
+    options << "modprobe.blacklist=" + host_param('blacklist').gsub(' ', '')
+  end
+  options = options.join(' ')
+-%>
+
+<%
+  fips = ''
+  if host_param('p-enable_fips_deployment')
+    fips = 'fips=1'
+  end
+-%>
+
+DEFAULT linux
+
+LABEL linux
+    KERNEL <%= @kernel %>
+    APPEND initrd=<%= @initrd %> inst.ks=<%= foreman_url('provision')%> inst.ksdevice=bootif network inst.ks.sendmac <%= snippet('snt-create_ip_config_string') %> <%= options %> <%= fips %>
+    IPAPPEND 2

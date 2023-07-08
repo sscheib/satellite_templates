@@ -1,0 +1,178 @@
+<%#
+kind: snippet
+name: snt-luks_encryption
+model: ProvisioningTemplate
+snippet: true
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+
+<%#
+author: Steffen Scheib (steffen.scheib.extern@itergo.com)
+
+description:
+Adds a clevis-luks bind to a already created luks partition (/dev/sda2) using discovered tang servers from SRV records _tang._tcp.@host.domain.
+All discovered tang servers have to be available, otherwise the provisioning will be stopped.
+Furthermore it regenerates the initramfs (for the future to-be-booted kernel) to include the automatic unlocking via a tang server. It also updates
+the grub configuration at /etc/default/grub and regenerates the grub configuration afterwards, to bring up the interface(s) before entering the unlocked 
+system to be able to reach the tang server.
+
+custom snippets:
+- create_ip_config_string
+
+snippets:
+  none
+  
+supported host parameters:
+> host parameter name                    | type      | description                                                                  <
++----------------------------------------+-----------+-------------------------------------------------------------------------------
+> p-crypted_system_initial_passphrase    | string    | This passphrase was used to initially create the luks partition and within 
+>                                        |           | this snippet will be removed again
+*                                        |           | Default: Some Secret Password :)
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+
+changelog:
+22.05.2023 - Steffen Scheib:
+- Renamed crypted_system_initial_passphrase to p-crypted_system_initial_passphrase 
+
+22.06.2021 - Steffen Scheib:
+- Added removal of prepended whitespaces
+
+09.06.2021 - Steffen Scheib:
+- Fixed typo in luksRemoveKey
+- Added bind-utils to install (contains dig)
+- Added additional check for 'dig'
+- Replaced echo with write_output
+
+05.05.2021 - Steffen Scheib:
+- Added supported host parameters to the header
+
+23.04.2021 - Steffen Scheib:
+- Initial version
+-%>
+
+write_output "Starting processing snippet 'snt-luks_encryption'" "INFO";
+
+# first, we should check, if we can determine the kernel to use, while regenerating the initramfs
+readarray -t kernels < <(dnf list --installed "kernel.$(arch)" | awk '/^kernel\./ && ! /@anaconda/ {print $2}')
+[[ "${#kernels[@]}" -eq 1 ]] || {
+  write_output "More than one kernel was found, which is marked as installed - unable to determine which one to use!" "ERROR";
+  write_output "Following kernels were found:" "ERROR";
+  for kernel in "${kernels[@]}"; do
+    write_output "-> '${kernel}'" "ERROR";
+  done
+  exit 3;
+};
+declare -r destinationKernel="${kernels[0]}.$(arch)"
+write_output "Found kernel to use: '${destinationKernel}'" "INFO";
+
+
+write_output "It is asked to encrypt the system, so installing clevis-dracut and bind-utils" "INFO";
+"${__PACKAGE_MANAGER}" "${__PACKAGE_MANAGER_ARGUMENTS}" install clevis-dracut bind-utils
+
+command -v dig &> /dev/null || {
+  write_output "Command 'dig' not available, although it is necessary!";
+  exit 9;
+}
+
+# find out the available tang servers
+declare allTangServersReachable=0
+declare noTangServersFound=1
+declare -A tangServers=()
+while read -r tangServer; do
+  write_output "Processing tangServer '${tangServer}'" "DEBUG";
+  # remove the port from the tang server (if present) for the name of the advertisement file
+  advertisementFile="adv."$(echo "${tangServer}" | sed -r 's/:.+$//')".jws"
+  
+  write_output "Trying to retrieve the advertisement from tang server '${tangServer}' and save it to '${advertisementFile}'" "INFO";
+  curl -vsfg "http://${tangServer}/adv" -o "${advertisementFile}" || {
+    write_output "Unable to retrieve advertisement from '${tangServer}'!" "ERROR";
+    allTangServersReachable=1;
+    break;
+  }
+  write_output "Successfully retrieved the advertisement from tang server '${tangServer}' and saved it to '${advertisementFile}'" "INFO";
+  tangServers["${tangServer}"]="${advertisementFile}"
+done < <(dig +short SRV _tang._tcp.<%= @host.domain %> | sed 's/\.$//g' | awk '{print $4":"$3}')
+# ^ prints the forth and third column of each retrieved srv record
+# example of the output: 
+# tang01.example.com:7500
+# tang02.example.com:7500
+
+
+[[ "${#tangServers[@]}" -gt 0 ]] || {
+  write_output "No tang servers could be found via SRV record '_tang._tcp.<%= @host.domain %>'!" "ERROR";
+  exit 4;
+}
+
+[[ "${allTangServersReachable}" -eq 0 ]] || {
+  write_output "Not all discovered tang servers are available'!" "ERROR";
+  write_output "Following servers have been discovered:" "ERROR";
+  for tangServer in "${!tangServers[@]}"; do
+    write_output "${tangServer}" "ERROR";
+  done
+  exit 5;
+}
+
+sssConfigurationString="{\"t\": 1, \"pins\": { \"tang\": ["
+# iterate over all tang servers
+for tangServer in "${!tangServers[@]}"; do
+  sssConfigurationString+="{\"url\": \"http://${tangServer}\", \"adv\": \"${tangServers["${tangServer}"]}\"},"
+done
+
+# replace last , with closing parantheses for the list and the outter dict
+sssConfigurationString="$(echo "${sssConfigurationString}" | sed 's/,$/\]\}\}/')"
+write_output "Following sss configuration string was built (validating and pretty-printing it with python module json.tool now):" "INFO";
+validated_json="$(echo "${sssConfigurationString}" | /usr/libexec/platform-python -m json.tool)"
+write_output "${validated_json}" "INFO";
+clevis luks bind -f -k- -d /dev/sda3 sss "${sssConfigurationString}" <<< "<%= host_param('p-crypted_system_initial_passphrase') %>"
+
+write_output "Build ip_config string from host parameters" "INFO";
+ip_a=<%= @host.ip %>
+write_output "Current host ip: <%= @host.ip %>" "INFO";
+inet_name=`ip addr | grep $ip_a -m1 | awk '{print $8}'`
+write_output "Network interface assigned to ip configuration: ${inet_name}" "INFO";
+ip_config_string="ip=<%= @host.ip %>::<%= @host.subnet.gateway %>:<%= @host.subnet.mask %>::$inet_name:off:<%= @host.subnet.dns_primary %>"
+
+write_output "Following ip_config_string will be add to GRUB configuration" "INFO";
+write_output "$ip_config_string" "INFO";
+write_output "Retrieving GRUB_CMDLINE_LINUX line from /etc/default/grub" "INFO";
+# removes string GRUB_CMDLINE_LINUX as well as all " (should only be on the beginning and end of the line anyway)
+grubCmdlineLinux="$(grep -E '^GRUB_CMDLINE_LINUX=\"' /etc/default/grub | sed -e 's/\"//g' -e 's/^GRUB_CMDLINE_LINUX\=//')"
+
+# grubCmdLineLinux has to be set (not empty)
+[[ -n "${grubCmdlineLinux}" ]] || {
+  write_output "GRUB_CMDLINE_LINUX from file '/etc/default/grub' is empty, automatic unlocking not possible!!" "ERROR";
+  exit 6;
+};
+
+write_output "Current value of GRUB_CMDLINE_LINUX:" "INFO";
+write_output "${grubCmdlineLinux}" "INFO";
+# rd.neednet forces the kernel to bring up network in any case
+grubCmdLineLinux="GRUB_CMDLINE_LINUX=\"${grubCmdlineLinux} $ip_config_string rd.neednet=1\""
+write_output "Will write following line to file /etc/default/grub:" "INFO";
+write_output "${grubCmdLineLinux}" "INFO";
+# using , as delimiter as / would require to escape all containing / - ',' seems unlikely to occur in the string
+sed -r "s,^GRUB_CMDLINE_LINUX.*,${grubCmdLineLinux}," -i /etc/default/grub
+
+write_output "Successfully updated GRUB_CMDLINE_LINUX in file /etc/default/grub. Following the updated line of /etc/default/grub:" "INFO";
+grep -E '^GRUB_CMDLINE_LINUX=\"' /etc/default/grub
+write_output "Updating grub configuration file" "INFO";
+grub2-mkconfig --output /etc/grub2.cfg
+write_output "Successfully updated grub configuration file" "INFO";
+
+write_output "Regenerating boot image and initramfs" "INFO";
+dracut -vf --kver "${destinationKernel}"
+write_output "Successfully regenerated boot image and initramfs" "INFO";
+
+write_output "Finished processing snippet 'snt-luks_encryption'" "INFO";

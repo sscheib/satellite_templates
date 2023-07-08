@@ -1,0 +1,173 @@
+<%#
+kind: snippet
+name: snt-subscription_manager_registration
+model: ProvisioningTemplate
+snippet: true
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description:
+Registers the system to the Satellite/Capsule and determines if EPEL is activated in the activation key. If EPEL is activated, it 
+will be deactivated for the entire installation to avoid the installation of packages from EPEL (puppet, katello-agent etc).
+
+custom snippets:
+  none
+
+snippets:
+  none
+  
+supported host parameters:
+> host parameter name                    | type      | description                                                                  <
++----------------------------------------+-----------+-------------------------------------------------------------------------------
+> syspurpose_role                        | string    | If set, sets the syspurpose role within subscription-manager
+*                                        |           | Default: Unset
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+> syspurpose_usage                       | string    | If set, sets the syspurpose usage within subscription-manager
+*                                        |           | Default: Unset
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+> syspurpose_sla                         | string    | If set, sets the syspurpose SLA within subscription-manager
+*                                        |           | Default: Unset
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+> syspurpose_addons                      | string    | If set, sets the syspurpose addons within subscription-manager
+*                                        |           | Default: Unset
++----------------------------------------+-----------+------------------------------------------------------------------------------+
+> additional_repositories                | string    | Additional repositories to enable to the already enabled within the activation
+*                                        |           | key. Repositories have to be passed as comma-seperated string (repo1,repo2)
+*                                        |           | Default: Unset
++----------------------------------------+-----------+------------------------------------------------------------------------------>
+
+changelog:
+04.09.2021 - Steffen Scheib:
+- Initial version
+%>
+
+<%
+    subscription_manager_certpkg_url = subscription_manager_configuration_url(@host)
+    subscription_manager_org = @host.rhsm_organization_label
+    activation_key = host_param('kt_activation_keys')
+    install_katello_agent = false
+    install_katello_host_tools = true
+    install_katello_host_tracer_tools = true
+%>
+
+write_output "Starting processing snippet 'snt-subscription_manager_registration'" "INFO";
+
+# install subscription-manager, if it is not installed already
+command -v subscription-manager &> /dev/null || {
+    ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} install subscription-manager
+};
+
+<%- if (host_param('syspurpose_role') || host_param('syspurpose_usage') || host_param('syspurpose_sla') || host_param('syspurpose_addons')) %>
+    write_output "Host parameter to set the syspurpose is set, installing subscription-manager-syspurpose" "INFO";
+    ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} install subscription-manager-syspurpose
+
+    if [ -f /usr/sbin/syspurpose ]; then
+        <%- if host_param('syspurpose_role') %>
+            syspurpose set-role "<%= host_param('syspurpose_role') %>"
+        <%- end %>
+	
+        <%- if host_param('syspurpose_usage') %>
+            syspurpose set-usage "<%= host_param('syspurpose_usage') %>"
+        <%- end %>
+    
+        <%- if host_param('syspurpose_sla') %>
+            syspurpose set-sla "<%= host_param('syspurpose_sla') %>"
+        <%- end %>
+
+        <%- if host_param('syspurpose_addons') %>
+            <%- addons = host_param('syspurpose_addons').split(',').map { |add_on| "'#{add_on.strip}'" }.join(" ") %>
+            syspurpose add-addons <%= addons %>
+        <%- end %>
+    else
+        write_output "Host parameter to set the syspurpose is set, but syspurpose CLI is not present!" "WARNING";
+    fi
+<% end %>
+
+# Added --force to eliminate issue when katello-agent is already installed outside of snippet
+write_output "Retrieving and installing CA from responible Capsule" "INFO";
+rpm -Uvh --force <%= subscription_manager_certpkg_url %>
+
+write_output "Registering system '<%= @host.name %>' to organization '<%= subscription_manager_org %>' with activation key '<%= activation_key %>'" "INFO";
+# When simple content access is enabled, subscription-manager will 'fail' with a subscription status of unknown (as expected).
+# The '|| true' at the end of the line makes sure, the installation does not abort at this point.
+# In turn however, this subscription-manager command will *never* fail (although it might be an unexpected failure)
+subscription-manager register --name='<%= @host.name %>' --org='<%= subscription_manager_org %>' --activationkey='<%= activation_key %>' || true
+
+# Workaround for timeouts while listing repositories. Default timeout value is 180s, setting it to 360s.
+# See https://access.redhat.com/solutions/4044461
+
+write_output "Setting higher timeout value from 180s to 360s" "INFO";
+subscription-manager config --server.server_timeout=360
+
+<% if host_param('additional_repositories') %>
+    write_output "Additional repositories given via host parameter 'additional_repositories', enabling them'" "INFO";
+    <%= "subscription-manager repos --enable #{host_param('additional_repositories').gsub(',', ' --enable')}" %>
+<% end %>
+
+write_output "Trying to find out if EPEL is activated within the activation key <%= host_param('kt_activation_keys') %>" "INFO";
+__ORGANIZATION_NAME="<%= @host.rhsm_organization_label %>"
+__PRODUCT_NAME="prd-fedora-epel"
+__REPOSITORY_NAME="repo-epel-latest-el-<%= @host.operatingsystem.major.to_i %>"
+__REPOSITORY_ID="${__ORGANIZATION_NAME}_${__PRODUCT_NAME}_${__REPOSITORY_NAME}"
+
+write_output "Repository ID: ${__REPOSITORY_ID}" "INFO";
+
+# Also it is worth to update subscription-manager at this moment
+write_output "Updating subscription-manager" "INFO";
+${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} update subscription-manager
+
+foundEpelRepositoryName=1
+foundEpelRepositoryId=1
+
+# go line-wise through enabled repositories
+while read -r subscriptionInformationLine; do
+    # we only care for repo ID and name
+    if [[ ! "${subscriptionInformationLine^^}" =~ ^REPO[[:space:]]ID|NAME: ]]; then
+        continue;
+    fi
+
+    # both repo ID and name need to be found
+    if [[ "${subscriptionInformationLine^^}" =~ ^REPO[[:space:]]ID:[[:space:]]+${__REPOSITORY_ID^^}$ ]]; then
+        foundEpelRepositoryId=0
+    elif [[ "${subscriptionInformationLine^^}" =~ ^REPO[[:space:]]NAME:[[:space:]]+${__REPOSITORY_NAME^^}$ ]]; then
+        foundEpelRepositoryName=0
+    fi
+done < <(subscription-manager repos --list-enabled)
+
+if [[ "${foundEpelRepositoryId}" -eq 0 ]] && [[ "${foundEpelRepositoryName}" -eq 0 ]]; then
+    write_output "Found enabled EPEL repository, will disable it for now" "INFO";
+    subscription-manager repos --disable "${__REPOSITORY_ID}"
+fi
+
+<% if install_katello_agent %>
+    write_output "It is asked to install package 'katello-agent', installing it now" "INFO";
+    write_output "cmd: ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} install katello-agent" "INFO";
+    ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} install katello-agent
+<% end %>
+
+<% if install_katello_host_tools %>
+    write_output "It is asked to install package 'katello-host-tools', installing it now" "INFO";
+    ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} install katello-host-tools
+<% end %>
+
+<% if install_katello_host_tracer_tools %>
+    write_output "It is asked to install package 'katello-host-tools-tracer', installing it now" "INFO";
+    ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} install katello-host-tools-tracer
+<% end %>
+
+write_output "Snippet 'snt-subscription_manager_registration' finished successfully :)!" "INFO";

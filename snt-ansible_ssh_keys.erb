@@ -44,6 +44,9 @@ supported host parameters:
 +----------------------------------------+-----------+------------------------------------------------------------------------------>
 
 changelog:
+11.02.2024 - Steffen Scheib:
+- Fixing joining of SSH keys ('\n' is wrong, "\n" is correct)
+
 28.05.2023 - Steffen Scheib:
 - Prefixing parameters with p-
 
@@ -81,7 +84,7 @@ sed -i -E 's/^[[:space:]]+//g' <%= sudoers_file %>
 # create the .ssh folder and add the SSH keys to authorized_keys
 mkdir -p <%= ssh_path %>
 cat <<- EOF >> <%= ssh_path %>/authorized_keys
-  <%= host_param('p-ansible_ssh_keys').join('\n') %>
+  <%= host_param('p-ansible_ssh_keys').join("\n") %>
 EOF
 # ^ EOF needs to be on the beginning of the line!
 

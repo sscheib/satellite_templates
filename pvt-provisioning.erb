@@ -186,6 +186,10 @@ The paths are the view from an installed machine. If you are in an anaconda inst
 For example: /mnt/sysimage/root/install.post.script.log
 
 changelog:
+22.05.2024 - Steffen Scheib:
+- Moving upgrade of packages to the beginning
+- Fixing an issue with string concatenation (__PACKAGES) which led to RHEL 7 systems not provisioning correctly
+
 28.05.2023 - Steffen Scheib:
 - Fixing missed renaming of ansible_ssh_keys to p-ansible_ssh_keys while including the snippet to set up the Ansible user
 - Adding support for p-enable_fips_deployment
@@ -337,11 +341,14 @@ reboot
 
   # register system to Capsule/Satellite
   <%= snippet('snt-subscription_manager_registration') %>
+
+  # update all packages
+  ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} update  
     
   # install some packages, which are not part of the kickstart (baseOS) repository
   declare __PACKAGES="sysstat wget tmux vim-enhanced bind-utils"
   <% if os_major <= 7 -%>
-    __PACKAGES+="redhat-lsb-core"
+    __PACKAGES+=" redhat-lsb-core"
   <% end -%>
   ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} install ${__PACKAGES}
   
@@ -354,8 +361,8 @@ reboot
   # use dig to retrieve a SRV record for ntp
   # every zone should have an ntp record like: _ntp._udp.<domain>
   # Example:
-  # _ntp._udp.office.int.scheib.me
-  # _ntp._udp.pve.ext.scheib.me
+  # _ntp._udp.example.com
+  # _ntp._udp.sub.domain.example.com
   # 
   # Note: only the returned server name is evaluated, the port and the weight will be ignored
   # defines the ntp server, which will be used in snt-configure_time_synchronization and snt-idm_register
@@ -364,9 +371,6 @@ reboot
   # Configure /etc/ntp.conf (RHEL 7) or /etc/chrony.conf (RHEL 8)
   <%= snippet('snt-configure_time_synchronization') %>
 
-  # update all packages
-  ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} update
-  
   # disable postfix if installed
   if systemctl list-unit-files --type service | grep -q 'postfix'; then
     systemctl disable postfix

@@ -188,7 +188,7 @@ For example: /mnt/sysimage/root/install.post.script.log
 changelog:
 22.05.2024 - Steffen Scheib:
 - Moving upgrade of packages to the beginning
-- Fixing an issue with string concatenation (__PACKAGES) which led to RHEL 7 systems not provisioning correctly
+- Fixing an issue with string concatenation (__PACKAGES) which led to RHEL 7 systems not provisioning once encountering the the %post section
 
 28.05.2023 - Steffen Scheib:
 - Fixing missed renaming of ansible_ssh_keys to p-ansible_ssh_keys while including the snippet to set up the Ansible user

@@ -186,6 +186,10 @@ The paths are the view from an installed machine. If you are in an anaconda inst
 For example: /mnt/sysimage/root/install.post.script.log
 
 changelog:
+18.08.2024 - Steffen Scheib:
+- Moving configuration of the network interfaces right after the BASH trap init to avoid issues due to missing name resolution or
+  no network altogether
+
 22.05.2024 - Steffen Scheib:
 - Moving upgrade of packages to the beginning
 - Fixing an issue with string concatenation (__PACKAGES) which led to RHEL 7 systems not provisioning once encountering the the %post section
@@ -326,6 +330,10 @@ reboot
 
   # Define variables and create the BASH traps
   <%= snippet('snt-post_provisioning_init') %>  
+
+  <% if subnet.respond_to?(:dhcp_boot_mode?) -%>
+    <%= snippet('snt-networking_setup_post_installation') %>
+  <% end -%>
  
   # import GPG keys
   # this is necessary for dnf/yum to not report a warning when automatically importing the
@@ -334,10 +342,6 @@ reboot
   write_output "Importing GPG key from '${__RHEL_GPG_KEY}'" "INFO";
   rpm --import "${__RHEL_GPG_KEY}"
   rpmkeys --import "${__RHEL_GPG_KEY}"
-
-  <% if subnet.respond_to?(:dhcp_boot_mode?) -%>
-    <%= snippet('snt-networking_setup_post_installation') %>
-  <% end -%>
 
   # register system to Capsule/Satellite
   <%= snippet('snt-subscription_manager_registration') %>

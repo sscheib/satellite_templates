@@ -361,9 +361,6 @@ reboot
   # register system to Capsule/Satellite
   <%= snippet('snt-subscription_manager_registration') %>
 
-  # enable only specific repositories to ensure the installation works without any issue
-  <%= snippet('snt-disable_repositories') %>
-
   # update all packages
   ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} update  
     

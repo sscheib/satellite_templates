@@ -59,7 +59,7 @@ declare -a __ENABLED_REPOSITORIES=()
 
 # select the repositories which are relevant for the OS and are among the available repositories for this host
 for repository in "${!__BASE_REPOSITORIES[@]}"; do
-  [[ "${__BASE_REPOSITORIES["${repository}"]}" =~ ^<%= os_major%>$ ]] || {
+  [[ "${__BASE_REPOSITORIES["${repository}"]}" =~ ^<%= @host.operatingsystem.major.to_i %>$ ]] || {
     write_output "Skipping irrelevant repository '${repository}'" "DEBUG";
     continue;
   };

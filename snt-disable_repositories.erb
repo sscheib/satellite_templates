@@ -93,9 +93,9 @@ done < <(subscription-manager repos --list-enabled | awk -F ':' '/^Repo[[:space:
 
 <% if host_param('p-fail_on_no_repositories') %>
   # check if at least one repository is available that should be enabled
-  [[ "${#enableRepositories[@]" -ge 1 ]] || {
+  [[ "${#enableRepositories[@]}" -ge 1 ]] || {
     write_output "It is requested to disable all repositories that are not required during the installation" "INFO";
-    exit 1;
+    exit 12;
   };
 <% end %>
 

@@ -54,7 +54,7 @@ IFS=" " read -ra availableRepositories <<<"$(subscription-manager repos --list |
 # stores the repositories that should be enabled during the installation
 declare -a enableRepositories=()
 
-stores the repositories which are currently enabled to allow enabling them after the kickstart installation has been done
+# stores the repositories which are currently enabled to allow enabling them after the kickstart installation has been done
 declare -a __ENABLED_REPOSITORIES=()
 
 # select the repositories which are relevant for the OS and are among the available repositories for this host

@@ -176,6 +176,34 @@ declare __PACKAGE_MANAGER_ARGUMENTS=""
 # defines the path to the RHEL GPG key
 declare -r __RHEL_GPG_KEY="/etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release"
 
+# base repositories to enable *ONLY* during provisioning
+# format:
+# ["<REPO_ID>"]="<OS_MAJOR_VERSION>"
+declare -Ar __BASE_REPOSITORIES=(
+  # RHEL 7
+  ["rhel-7-server-rpms"]="7"
+  ["rhel-7-server-satellite-client-6-rpms"]="7"
+  # RHEL 7 ELS
+  ["rhel-7-server-els-rpms"]="7"
+  ["rhel-7-server-els-satellite-client-6-rpms"]="7"
+  # RHEL 8
+  ["rhel-8-for-x86_64-baseos-rpms"]="8"
+  ["rhel-8-for-x86_64-appstream-rpms"]="8"
+  ["satellite-client-6-for-rhel-8-x86_64-rpms"]="8"
+  # RHEL 8 EUS
+  ["rhel-8-for-x86_64-appstream-eus-rpms"]="8"
+  ["rhel-8-for-x86_64-baseos-eus-rpms"]="8"
+  ["satellite-client-6-for-rhel-8-x86_64-eus-rpms"]="8"
+  # RHEL 9
+  ["rhel-9-for-x86_64-baseos-rpms"]="9"
+  ["rhel-9-for-x86_64-appstream-rpms"]="9"
+  ["satellite-client-6-for-rhel-9-x86_64-rpms"]="9"
+  # RHEL 9 EUS
+  ["rhel-9-for-x86_64-appstream-eus-rpms"]="9"
+  ["rhel-9-for-x86_64-baseos-eus-rpms"]="9"
+  ["satellite-client-6-for-rhel-9-x86_64-eus-rpms"]="9"
+)
+
 # Detects default package manager
 if [[ -f "/bin/dnf" ]] || [[ -f "/usr/bin/dnf" ]]; then
     write_output "Using dnf as package manager" "INFO";

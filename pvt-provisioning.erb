@@ -144,7 +144,15 @@ supported host parameters:
 > p-ansible_controller_host              | string    | snt-ansible_provisioning_callback_service    | Ansible Automation Controller Host
 *                                        |           |                                              | Default: Unset
 +----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
+> p-disable_all_repositories             | boolean   | pvt-provisioning                             | Whether to disable all repositories during provisioning
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+-------------------------------------------------+
 > p-enable_fips_deployment               | boolean   | pvt-provisioning                             | Whether to enable FIPS mode
+*                                        |           |                                              | Default: Unset
++----------------------------------------+-----------+----------------------------------------------+------------------------------------------------->
+> p-fail_on_no_repositories              | boolean   | snt-disable_repositories                     | Whether to fail if not at least one repository is available
+*                                        |           |                                              | to the host. Repositories checked are defined in __BASE_REPOSITORIES 
+*                                        |           |                                              | Note: Works only if p-disable_all_repositories is enabled
 *                                        |           |                                              | Default: Unset
 +----------------------------------------+-----------+----------------------------------------------+------------------------------------------------->
 
@@ -162,6 +170,7 @@ exit codes:
 9: Command 'dig' is not available
 10: Unable to create directory /mnt/sysimage/var/log/journal
 11: Unable to run command 'sync'
+12: No repository is available for the installation for the host. Note: Repositories relevant are defined in __BASE_REPOSITORIES
 
 Note: These are only the *defined* exit codes! If a command exits with an error (exit code not equals zero) within the main %post section,
       this exit code will be used to exit the post installation.
@@ -186,6 +195,12 @@ The paths are the view from an installed machine. If you are in an anaconda inst
 For example: /mnt/sysimage/root/install.post.script.log
 
 changelog:
+03.09.2024 - Steffen Scheib:
+- Removing EPEL repository detection and disabling
+- Adding parameter p-disable_all_repositories which allows to disable all not required repositories
+- Adding parameter p-fail_on_no_repositories which aborts the installation if not at least one repository from __BASE_REPOSITORIES
+  is available to this host. This parameter works only if p-disable_all_repositories is enabled
+
 18.08.2024 - Steffen Scheib:
 - Moving configuration of the network interfaces right after the BASH trap init to avoid issues due to missing name resolution or
   no network altogether
@@ -346,6 +361,9 @@ reboot
   # register system to Capsule/Satellite
   <%= snippet('snt-subscription_manager_registration') %>
 
+  # enable only specific repositories to ensure the installation works without any issue
+  <%= snippet('snt-disable_repositories') %>
+
   # update all packages
   ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} update  
     
@@ -398,9 +416,6 @@ reboot
     <%= snippet('snt-ansible_ssh_keys') %>
   <% end -%>
 
-  # enable EPEL again (if it was enabled)
-  <%= snippet('snt-enable_epel') %>
-
   <% if host_param('p-encrypt_system') %>
     # add a cleavis bind for luks and remove initial passphrase
     <%= snippet('snt-luks_encryption') %>    
@@ -420,6 +435,12 @@ EOF
     write_output "Enabling FIPS mode." "INFO";
     fips-mode-setup --enable
   <% end -%>
+
+  # Enable repositories again (if they were enabled)
+  <% if host_param('p-disable_all_repositories') %>
+    write_output "Enabling all originally enabled repositories again" "INFO";
+    subscription-manager repos "${__ENABLED_REPOSITORIES[@]}"
+  <% end %>
   
   write_output "Telling the system to relabel SELinux contexts upon restart" "INFO";
   touch "/.autorelabel"

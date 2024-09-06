@@ -130,4 +130,9 @@ subscription-manager config --server.server_timeout=360
   <%= snippet "snt-disable_repositories" %>
 <% end %>
 
+<% if install_katello_host_tracer_tools %>
+  write_output "It is asked to install package 'katello-host-tools-tracer', installing it now" "INFO";
+  ${__PACKAGE_MANAGER} ${__PACKAGE_MANAGER_ARGUMENTS} install katello-host-tools-tracer
+<% end %>
+
 write_output "Snippet 'snt-subscription_manager_registration' finished successfully :)!" "INFO";

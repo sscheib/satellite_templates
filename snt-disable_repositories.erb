@@ -1,0 +1,105 @@
+<%#
+kind: snippet
+name: snt-disable_repositories
+model: ProvisioningTemplate
+snippet: true
+oses:
+- RedHat 7
+- RHEL 7
+- RedHat 8
+- RHEL 8
+- RedHat 9
+- RHEL 9
+
+locations:
+- loc-core
+
+organizations:
+- org-core
+-%>
+
+<%#
+author: Steffen Scheib (steffen@scheib.me)
+
+description:
+Disable all repositories which are not necessarily required to be enabled during installation. A selection is done
+based on __BASE_REPOSITORIES
+
+custom snippets:
+  none
+
+snippets:
+  none
+  
+supported host parameters:
+> host parameter name                    | type      | description                                                                  <
++----------------------------------------+-----------+------------------------------------------------------------------------------>
+> p-fail_on_no_repositories              | boolean   | Whether to fail if not at least one repository is available to the host.
+*                                        |           | Repositories checked are defined in __BASE_REPOSITORIES
+*                                        |           | Note: Works only if p-disable_all_repositories is enabled (which includes this
+*                                        |           |       snippet.
+*                                        |           | Default: Unset
++----------------------------------------+-----------+------------------------------------------------------------------------------>
+
+changelog:
+03.09.2024 - Steffen Scheib:
+- Initial version
+%>
+
+write_output "Starting processing snippet 'snt-disable_repositories'" "INFO";
+
+# retrieve all available repositories
+IFS=" " read -ra availableRepositories <<<"$(subscription-manager repos --list | awk -F ':' '/^Repo[[:space:]]ID:/ {print $2}' | xargs)"
+
+# stores the repositories that should be enabled during the installation
+declare -a enableRepositories=()
+
+# stores the repositories which are currently enabled to allow enabling them after the kickstart installation has been done
+declare -a __ENABLED_REPOSITORIES=()
+
+# select the repositories which are relevant for the OS and are among the available repositories for this host
+for repository in "${!__BASE_REPOSITORIES[@]}"; do
+  [[ "${__BASE_REPOSITORIES["${repository}"]}" =~ ^<%= @host.operatingsystem.major.to_i %>$ ]] || {
+    write_output "Skipping irrelevant repository '${repository}'" "DEBUG";
+    continue;
+  };
+
+  declare -i foundRepo=1
+  for availableRepository in "${availableRepositories[@]}"; do
+    [[ "${repository}" =~ ^"${availableRepository}"$ ]] || {
+      continue;
+    };
+
+    # match found, no need to continue
+    foundRepo=0
+    break
+  done
+
+  [[ "${foundRepo}" -eq 0 ]] || {
+    write_output "Skipping irrelevant repository '${repository}'" "DEBUG"; 
+    continue;
+  };
+
+  write_output "Repository '${repository}' will be enabled" "INFO";
+  enableRepositories+=("--enable=${repository}")
+done
+
+# retrieve all currently enabled repositories
+while read -r repository; do
+  write_output "Repository '${repository}' was initially enabled on the system" "DEBUG";
+  __ENABLED_REPOSITORIES+=("--enable=${repository}")
+done < <(subscription-manager repos --list-enabled | awk -F ':' '/^Repo[[:space:]]ID:/ {print $2}')
+# ^ retrieves all repository IDs (e.g. rhel-8-for-x86_64-appstream-rpms)
+
+<% if host_param('p-fail_on_no_repositories') %>
+  # check if at least one repository is available that should be enabled
+  [[ "${#enableRepositories[@]}" -ge 1 ]] || {
+    write_output "It is requested to disable all repositories that are not required during the installation" "INFO";
+    exit 12;
+  };
+<% end %>
+
+# disable all repositories which are not explicitly enabled
+subscription-manager repos --disable=* "${enableRepositories[@]}"
+
+write_output "Snippet 'snt-disable_repositories' finished successfully :)!" "INFO";
